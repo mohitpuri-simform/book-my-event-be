@@ -19,6 +19,7 @@ model User {
   name          String
   role          Role           @default(USER)
   refreshTokens RefreshToken[]
+  events        Event[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -35,4 +36,58 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+enum SeatStatus {
+  AVAILABLE
+  HELD
+  BOOKED
+}
+
+model Event {
+  id          String    @id @default(cuid())
+  name        String
+  venue       String
+  date        DateTime
+  organiserId String
+  organiser   User      @relation(fields: [organiserId], references: [id], onDelete: Cascade)
+  sections    Section[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([organiserId])
+  @@map("events")
+}
+
+model Section {
+  id             String   @id @default(cuid())
+  eventId        String
+  event          Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name           String
+  rows           Int
+  seatsPerRow    Int
+  priceCents     Int
+  aisleAfterSeat Int?
+  displayOrder   Int      @default(0)
+  seats          Seat[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([eventId, displayOrder])
+  @@map("sections")
+}
+
+model Seat {
+  id         String     @id @default(cuid())
+  sectionId  String
+  section    Section    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  row        Int
+  col        Int
+  priceCents Int
+  status     SeatStatus @default(AVAILABLE)
+  createdAt  DateTime   @default(now())
+
+  @@unique([sectionId, row, col])
+  @@index([sectionId])
+  @@map("seats")
 }

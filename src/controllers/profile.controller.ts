@@ -8,7 +8,7 @@ import { updateProfileSchema } from "../validation/profile.schema";
 
 export const getProfile = asyncHandler(async (req: Request, res: Response) => {
   const user = await getUserById(req.user!.id);
-  sendSuccess(res, { data: user });
+  sendSuccess(res, { data: user, message: MESSAGES.profile.fetchSuccess });
 });
 
 export const patchProfile = asyncHandler(async (req: Request, res: Response) => {

@@ -28,7 +28,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   const tokens = await issueTokens(user.id, user.role);
 
   setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-  sendSuccess(res, { statusCode: 201, data: user });
+  sendSuccess(res, { statusCode: 201, data: user, message: MESSAGES.auth.registerSuccess });
 });
 
 export const login = asyncHandler(async (req: Request, res: Response) => {
@@ -37,7 +37,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   const tokens = await issueTokens(user.id, user.role);
 
   setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-  sendSuccess(res, { data: user });
+  sendSuccess(res, { data: user, message: MESSAGES.auth.loginSuccess });
 });
 
 export const refresh = asyncHandler(async (req: Request, res: Response) => {
@@ -48,7 +48,7 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
 
   const { accessToken, refreshToken, user } = await rotateRefreshToken(token);
   setAuthCookies(res, accessToken, refreshToken);
-  sendSuccess(res, { data: user });
+  sendSuccess(res, { data: user, message: MESSAGES.auth.refreshSuccess });
 });
 
 export const logout = asyncHandler(async (req: Request, res: Response) => {
@@ -63,7 +63,7 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 
 export const me = asyncHandler(async (req: Request, res: Response) => {
   const user = await getUserById(req.user!.id);
-  sendSuccess(res, { data: user });
+  sendSuccess(res, { data: user, message: MESSAGES.auth.meFetchSuccess });
 });
 
 export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
