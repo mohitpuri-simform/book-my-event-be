@@ -7,8 +7,11 @@ export async function createEvent(organiserId: string, input: CreateEventInput) 
   return prisma.event.create({
     data: {
       name: input.name,
-      venue: input.venue,
+      venueStreet: input.venueStreet,
+      venueCity: input.venueCity,
+      venueState: input.venueState,
       date: input.date,
+      endDate: input.endDate,
       organiserId,
     },
   });
@@ -45,11 +48,21 @@ export async function getEventById(eventId: string) {
   return prisma.event.findUnique({ where: { id: eventId } });
 }
 
+export async function getMyEventById(eventId: string, organiserId: string) {
+  return prisma.event.findFirst({ where: { id: eventId, organiserId } });
+}
+
 export async function updateEvent(eventId: string, organiserId: string, input: UpdateEventInput) {
   const event = await prisma.event.findFirst({ where: { id: eventId, organiserId } });
 
   if (!event) {
     throw new ApiError(404, MESSAGES.events.notFound);
+  }
+
+  const nextDate = input.date ?? event.date;
+  const nextEndDate = input.endDate ?? event.endDate;
+  if (nextEndDate <= nextDate) {
+    throw new ApiError(422, MESSAGES.events.invalidEndDate);
   }
 
   return prisma.event.update({ where: { id: eventId }, data: input });

@@ -1,5 +1,11 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+// NODE_ENV must already be "test" by the time this runs (vitest.config.ts
+// sets it) so tests load .env.test instead of .env — resetState() in
+// tests/helpers/db.ts wipes every table and flushes Redis before each test,
+// and must never touch the dev database/Redis instance.
+dotenv.config({ path: process.env.NODE_ENV === "test" ? ".env.test" : ".env" });
 import { MESSAGES } from "../constants/messages.constants";
 
 const envSchema = z.object({
@@ -27,6 +33,13 @@ const envSchema = z.object({
   FORGOT_PASSWORD_EMAIL_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().default(3600),
   RESET_PASSWORD_RATE_LIMIT_MAX: z.coerce.number().default(10),
   RESET_PASSWORD_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().default(3600),
+
+  HOLD_TTL_SECONDS: z.coerce.number().default(300),
+
+  STRIPE_SECRET_KEY: z.string(),
+  STRIPE_WEBHOOK_SECRET: z.string(),
+
+  SUPPORT_ALERT_EMAIL: z.string(),
 });
 
 const parsed = envSchema.safeParse(process.env);

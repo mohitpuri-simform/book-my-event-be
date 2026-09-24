@@ -13,15 +13,18 @@ enum Role {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  password      String
-  name          String
-  role          Role           @default(USER)
-  refreshTokens RefreshToken[]
-  events        Event[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id              String           @id @default(cuid())
+  email           String           @unique
+  password        String
+  name            String
+  role            Role             @default(USER)
+  refreshTokens   RefreshToken[]
+  events          Event[]
+  holds           Hold[]
+  paymentAttempts PaymentAttempt[]
+  bookings        Booking[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@map("users")
 }
@@ -47,11 +50,15 @@ enum SeatStatus {
 model Event {
   id          String    @id @default(cuid())
   name        String
-  venue       String
+  venueStreet String
+  venueCity   String
+  venueState  String
   date        DateTime
+  endDate     DateTime
   organiserId String
   organiser   User      @relation(fields: [organiserId], references: [id], onDelete: Cascade)
   sections    Section[]
+  bookings    Booking[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -85,9 +92,108 @@ model Seat {
   col        Int
   priceCents Int
   status     SeatStatus @default(AVAILABLE)
+  holds      Hold[]
+  booking    Booking?
   createdAt  DateTime   @default(now())
 
   @@unique([sectionId, row, col])
   @@index([sectionId])
   @@map("seats")
+}
+
+enum HoldStatus {
+  ACTIVE
+  EXPIRED
+  RELEASED
+  CONFIRMED
+}
+
+// Audit/display record of a seat hold. Redis (`seat:{seatId}`) is the sole
+// source of truth for whether a hold is *currently* active — this row is
+// never trusted alone to answer that question (see backend CLAUDE.md /
+// seat-holding spec). `status`/`expiresAt` are updated lazily whenever a
+// hold is touched and Redis shows the key already gone.
+model Hold {
+  // Deliberately a UUID, not the usual cuid(): this id IS the `holdId` that
+  // gets minted in application code, written into the Redis lock value
+  // *before* we know whether we've won the race, and (only on a win)
+  // persisted here with that same value — see hold.service.ts.
+  id             String           @id @default(uuid())
+  seatId         String
+  seat           Seat             @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         HoldStatus       @default(ACTIVE)
+  expiresAt      DateTime
+  paymentAttempt PaymentAttempt?
+  booking        Booking?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([seatId])
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@map("holds")
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  VOIDED
+  EXPIRED_BEFORE_CONFIRMATION
+}
+
+// The idempotency ledger for Stripe confirmations. One row per hold
+// (`holdId` is unique — re-checkout on the same hold reuses/updates its
+// attempt rather than creating a new one). Several attempts from the same
+// multi-seat cart checkout can share one `stripePaymentIntentId`; the
+// `holdId` carried in the PaymentIntent metadata is what uniquely
+// identifies which attempt a given confirmation belongs to (see §3.1).
+model PaymentAttempt {
+  id                    String               @id @default(cuid())
+  holdId                String               @unique
+  hold                  Hold                 @relation(fields: [holdId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripePaymentIntentId String
+  amountCents           Int
+  status                PaymentAttemptStatus @default(PENDING)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([stripePaymentIntentId])
+  @@index([userId])
+  @@map("payment_attempts")
+}
+
+// Every Stripe webhook event id we've successfully processed, regardless of
+// which payment attempt(s) it touched. A unique-constraint conflict on
+// insert is what makes a replayed webhook a guaranteed no-op (rule #4).
+model ProcessedWebhookEvent {
+  id            String   @id @default(cuid())
+  stripeEventId String   @unique
+  eventType     String
+  createdAt     DateTime @default(now())
+
+  @@map("processed_webhook_events")
+}
+
+model Booking {
+  id         String   @id @default(cuid())
+  holdId     String   @unique
+  hold       Hold     @relation(fields: [holdId], references: [id])
+  seatId     String   @unique
+  seat       Seat     @relation(fields: [seatId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  eventId    String
+  event      Event    @relation(fields: [eventId], references: [id])
+  priceCents Int
+  ticketRef  String   @unique
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([eventId])
+  @@map("bookings")
 }

@@ -6,9 +6,12 @@
   "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "stripe:listen": "bash -c 'set -a; source .env; set +a; stripe listen --api-key \"$STRIPE_SECRET_KEY\" --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:${PORT:-4001}/webhooks/stripe'",
     "build": "prisma generate && tsc -p tsconfig.json && npm run copy-assets",
     "copy-assets": "node -e \"require('fs').cpSync('src/templates','dist/src/templates',{recursive:true})\"",
     "start": "node dist/src/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
@@ -36,6 +39,8 @@
     "mjml": "^5.4.1",
     "nodemailer": "^10.0.3",
     "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "stripe": "^22.6.2",
     "zod": "^4.6.2"
   },
   "devDependencies": {
@@ -48,12 +53,15 @@
     "@types/node": "^24.13.3",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
     "prettier": "^3.9.6",
     "prisma": "^7.10.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.20.7",
-    "typescript": "~6.0.2"
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.0"
   },
   "allowScripts": {
     "@prisma/engines@7.10.0": true,

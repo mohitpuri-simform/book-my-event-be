@@ -26,4 +26,5 @@ export interface ApiErrorBody {
   success: false;
   message: string;
   errors?: ApiErrorField[];
+  details?: Record<string, unknown>;
 }

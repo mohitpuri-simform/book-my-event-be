@@ -41,6 +41,7 @@ export const MESSAGES = {
     createSuccess: "Event created successfully",
     updateSuccess: "Event updated successfully",
     fetchSuccess: "Events fetched successfully",
+    invalidEndDate: "Event end date must be after the start date",
   },
   sections: {
     notFound: "Section not found",
@@ -60,8 +61,43 @@ export const MESSAGES = {
   server: {
     internalError: "Internal server error",
     routeNotFound: (method: string, url: string): string => `Route not found: ${method} ${url}`,
+    serviceUnavailable: "System temporarily unavailable, please try again",
   },
   mail: {
     otpSubject: "BookMyEvent: Your password reset code",
+    supportAlertSubject: (subject: string): string => `[BookMyEvent support] ${subject}`,
+  },
+  seats: {
+    notFound: "Seat not found",
+  },
+  holds: {
+    seatUnavailable: "This seat is no longer available",
+    notFound: "Hold not found",
+    holdSuccess: "Seat held successfully",
+    releaseSuccess: "Hold released",
+    fetchSuccess: "Holds fetched successfully",
+    someHoldsExpired: "One or more of your held seats have expired",
+  },
+  checkout: {
+    holdsRequired: "At least one hold is required to check out",
+    checkoutSuccess: "Checkout started",
+    holdNotOwned: "One or more holds do not belong to you",
+    statusFetchSuccess: "Checkout status fetched",
+    statusNotFound: "No checkout found for this payment",
+  },
+  payments: {
+    intentCreateFailed: "Unable to start payment, please try again",
+  },
+  bookings: {
+    fetchSuccess: "Bookings fetched successfully",
+    notFound: "Booking not found",
+  },
+  webhooks: {
+    invalidSignature: "Invalid webhook signature",
+    received: "Webhook received",
+  },
+  support: {
+    ticketReceived:
+      "Your support ticket has been received. Our team has been notified and will follow up shortly.",
   },
 } as const;

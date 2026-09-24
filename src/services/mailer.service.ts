@@ -53,3 +53,29 @@ export async function sendOtpEmailNow(payload: SendOtpEmailPayload): Promise<voi
     html,
   });
 }
+
+export interface SendSupportAlertEmailPayload {
+  subject: string;
+  message: string;
+  context?: Record<string, unknown>;
+}
+
+/**
+ * Plain-text ops alert — deliberately not templated like the OTP email.
+ * Used for outage/support-ticket notifications where getting the message
+ * to the team fast matters more than presentation.
+ */
+export async function sendSupportAlertEmailNow(
+  payload: SendSupportAlertEmailPayload,
+): Promise<void> {
+  const contextBlock = payload.context
+    ? `\n\nContext:\n${JSON.stringify(payload.context, null, 2)}`
+    : "";
+
+  await transporter.sendMail({
+    from: env.MAIL_FROM,
+    to: env.SUPPORT_ALERT_EMAIL,
+    subject: MESSAGES.mail.supportAlertSubject(payload.subject),
+    text: `${payload.message}${contextBlock}`,
+  });
+}

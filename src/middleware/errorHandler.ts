@@ -31,7 +31,11 @@ export function errorHandler(
   }
 
   if (err instanceof ApiError) {
-    sendError(res, err.statusCode, { success: false, message: err.message });
+    sendError(res, err.statusCode, {
+      success: false,
+      message: err.message,
+      ...(err.details !== undefined && { details: err.details }),
+    });
     return;
   }
 
