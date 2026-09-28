@@ -39,6 +39,12 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string(),
   STRIPE_WEBHOOK_SECRET: z.string(),
 
+  // Basis points of gross the platform keeps as commission on every
+  // booking (500 = 5%) — see wallet.service.ts.
+  STRIPE_CONNECT_PLATFORM_FEE_BPS: z.coerce.number().default(500),
+  STRIPE_CONNECT_ONBOARDING_RETURN_URL: z.url(),
+  STRIPE_CONNECT_ONBOARDING_REFRESH_URL: z.url(),
+
   SUPPORT_ALERT_EMAIL: z.string(),
 });
 

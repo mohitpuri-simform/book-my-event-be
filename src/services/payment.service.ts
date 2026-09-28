@@ -10,6 +10,8 @@ import { cancelHoldExpiry } from "../queues/holdExpiry.queue";
 import { ApiError } from "../utils/ApiError";
 import { generateTicketRef } from "./booking.service";
 import { releaseHoldRecord, validateHoldsForCheckout, type ValidatedHold } from "./hold.service";
+import { syncAccountStatus } from "./stripeConnect.service";
+import { creditWalletForPaymentIntent, handleChargeUpdated } from "./wallet.service";
 
 export interface CheckoutResult {
   paymentIntentId: string;
@@ -222,6 +224,8 @@ async function handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent): Promi
   for (const holdId of holdIds) {
     await finalizeAttempt(holdId, intent.id);
   }
+
+  await creditWalletForPaymentIntent(intent.id);
 }
 
 async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent): Promise<void> {
@@ -269,6 +273,12 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
     case "payment_intent.payment_failed":
     case "payment_intent.canceled":
       await handlePaymentIntentFailed(event.data.object);
+      break;
+    case "charge.updated":
+      await handleChargeUpdated(event.data.object);
+      break;
+    case "account.updated":
+      await syncAccountStatus(event.data.object);
       break;
     default:
       logger.info({ eventType: event.type }, "unhandled stripe event type");

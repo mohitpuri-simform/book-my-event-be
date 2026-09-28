@@ -21,6 +21,13 @@ export async function listMyBookings(userId: string) {
           endDate: true,
         },
       },
+      seat: {
+        select: {
+          row: true,
+          col: true,
+          section: { select: { name: true, rows: true } },
+        },
+      },
     },
   });
 }
@@ -34,7 +41,16 @@ export async function listBookingsForOrganiserEvent(eventId: string, organiserId
   return prisma.booking.findMany({
     where: { eventId },
     orderBy: { createdAt: "desc" },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      seat: {
+        select: {
+          row: true,
+          col: true,
+          section: { select: { name: true, rows: true } },
+        },
+      },
+    },
   });
 }
 

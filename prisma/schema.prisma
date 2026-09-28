@@ -13,18 +13,21 @@ enum Role {
 }
 
 model User {
-  id              String           @id @default(cuid())
-  email           String           @unique
-  password        String
-  name            String
-  role            Role             @default(USER)
-  refreshTokens   RefreshToken[]
-  events          Event[]
-  holds           Hold[]
-  paymentAttempts PaymentAttempt[]
-  bookings        Booking[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                  String                  @id @default(cuid())
+  email               String                  @unique
+  password            String
+  name                String
+  role                Role                    @default(USER)
+  refreshTokens       RefreshToken[]
+  events              Event[]
+  holds               Hold[]
+  paymentAttempts     PaymentAttempt[]
+  bookings            Booking[]
+  stripeAccount       OrganiserStripeAccount?
+  walletLedgerEntries WalletLedgerEntry[]
+  withdrawals         Withdrawal[]
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
 
   @@map("users")
 }
@@ -118,17 +121,17 @@ model Hold {
   // gets minted in application code, written into the Redis lock value
   // *before* we know whether we've won the race, and (only on a win)
   // persisted here with that same value — see hold.service.ts.
-  id             String           @id @default(uuid())
+  id             String          @id @default(uuid())
   seatId         String
-  seat           Seat             @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  seat           Seat            @relation(fields: [seatId], references: [id], onDelete: Cascade)
   userId         String
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status         HoldStatus       @default(ACTIVE)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         HoldStatus      @default(ACTIVE)
   expiresAt      DateTime
   paymentAttempt PaymentAttempt?
   booking        Booking?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@index([seatId])
   @@index([userId])
@@ -180,20 +183,110 @@ model ProcessedWebhookEvent {
 }
 
 model Booking {
-  id         String   @id @default(cuid())
-  holdId     String   @unique
-  hold       Hold     @relation(fields: [holdId], references: [id])
-  seatId     String   @unique
-  seat       Seat     @relation(fields: [seatId], references: [id])
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  eventId    String
-  event      Event    @relation(fields: [eventId], references: [id])
-  priceCents Int
-  ticketRef  String   @unique
-  createdAt  DateTime @default(now())
+  id                String             @id @default(cuid())
+  holdId            String             @unique
+  hold              Hold               @relation(fields: [holdId], references: [id])
+  seatId            String             @unique
+  seat              Seat               @relation(fields: [seatId], references: [id])
+  userId            String
+  user              User               @relation(fields: [userId], references: [id])
+  eventId           String
+  event             Event              @relation(fields: [eventId], references: [id])
+  priceCents        Int
+  ticketRef         String             @unique
+  createdAt         DateTime           @default(now())
+  walletLedgerEntry WalletLedgerEntry?
 
   @@index([userId])
   @@index([eventId])
   @@map("bookings")
+}
+
+enum OrganiserStripeAccountStatus {
+  NOT_CONNECTED
+  ONBOARDING_INCOMPLETE
+  RESTRICTED
+  ACTIVE
+}
+
+// Tracks an organiser's Stripe Connect (v1 Express) onboarding. 1:1 with
+// User. `status` is always re-derived wholesale from the latest
+// `account.updated` payload (see stripeConnect.service.ts#syncAccountStatus)
+// rather than incrementally patched, so replays/out-of-order delivery are
+// harmless.
+model OrganiserStripeAccount {
+  id                  String                       @id @default(cuid())
+  organiserId         String                       @unique
+  organiser           User                         @relation(fields: [organiserId], references: [id], onDelete: Cascade)
+  stripeAccountId     String                       @unique
+  status              OrganiserStripeAccountStatus @default(NOT_CONNECTED)
+  transfersCapability String?
+  requirementsDue     Json?
+  lastSyncedAt        DateTime?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  @@map("organiser_stripe_accounts")
+}
+
+enum WalletLedgerEntryStatus {
+  PENDING_FEE
+  CREDITED
+  REVERSED
+}
+
+// The wallet accrual record, one per booking. `stripeFeeCents`/`netCents`
+// are nullable because Stripe's real per-charge fee is not guaranteed to be
+// resolved synchronously at payment_intent.succeeded time — entries start
+// PENDING_FEE and are backfilled to CREDITED by the charge.updated webhook
+// once the real fee is known (see wallet.service.ts). Available balance =
+// SUM(netCents) WHERE status = 'CREDITED' AND withdrawalId IS NULL.
+model WalletLedgerEntry {
+  id                    String                  @id @default(cuid())
+  organiserId           String
+  organiser             User                    @relation(fields: [organiserId], references: [id], onDelete: Cascade)
+  bookingId             String                  @unique
+  booking               Booking                 @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  eventId               String
+  stripePaymentIntentId String
+  stripeChargeId        String?
+  grossCents            Int
+  platformFeeCents      Int
+  stripeFeeCents        Int?
+  netCents              Int?
+  status                WalletLedgerEntryStatus @default(PENDING_FEE)
+  withdrawalId          String?
+  withdrawal            Withdrawal?             @relation(fields: [withdrawalId], references: [id])
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@index([organiserId, status])
+  @@index([stripePaymentIntentId])
+  @@map("wallet_ledger_entries")
+}
+
+enum WithdrawalStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+// Audit trail and concurrency-safety anchor for a manual payout. Rows are
+// "claimed" onto a Withdrawal (ledgerEntries.withdrawalId set) inside the
+// same transaction that creates it — see wallet.service.ts#withdrawAvailableBalance.
+model Withdrawal {
+  id               String              @id @default(cuid())
+  organiserId      String
+  organiser        User                @relation(fields: [organiserId], references: [id], onDelete: Cascade)
+  stripeAccountId  String
+  amountCents      Int
+  status           WithdrawalStatus    @default(PENDING)
+  stripeTransferId String?             @unique
+  failureReason    String?
+  ledgerEntries    WalletLedgerEntry[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([organiserId])
+  @@map("withdrawals")
 }

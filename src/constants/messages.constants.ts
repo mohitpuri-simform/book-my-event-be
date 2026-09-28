@@ -96,6 +96,17 @@ export const MESSAGES = {
     invalidSignature: "Invalid webhook signature",
     received: "Webhook received",
   },
+  stripeConnect: {
+    onboardingLinkCreateFailed: "Unable to start Stripe onboarding, please try again",
+    onboardingLinkSuccess: "Onboarding link created",
+  },
+  wallet: {
+    fetchSuccess: "Wallet fetched successfully",
+    accountNotActive: "Connect your Stripe account and complete onboarding before withdrawing",
+    nothingToWithdraw: "There is no available balance to withdraw",
+    withdrawSuccess: "Withdrawal completed",
+    transferFailed: "Withdrawal failed, please try again",
+  },
   support: {
     ticketReceived:
       "Your support ticket has been received. Our team has been notified and will follow up shortly.",
