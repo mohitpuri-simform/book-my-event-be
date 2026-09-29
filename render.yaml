@@ -1,0 +1,58 @@
+services:
+  - type: web
+    name: book-my-event-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter # free tier sleeps, which stops the BullMQ workers
+    healthCheckPath: /health
+    preDeployCommand: npx prisma migrate deploy
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: book-my-event-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: book-my-event-redis
+          property: connectionString
+      - key: CLIENT_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SUPPORT_ALERT_EMAIL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CONNECT_ONBOARDING_RETURN_URL
+        sync: false
+      - key: STRIPE_CONNECT_ONBOARDING_REFRESH_URL
+        sync: false
+
+  - type: keyvalue
+    name: book-my-event-redis
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # internal access only
+
+databases:
+  - name: book-my-event-db
+    plan: basic-256mb

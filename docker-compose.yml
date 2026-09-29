@@ -11,6 +11,11 @@ services:
       - "5544:5432"
     volumes:
       - event-booking-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -20,6 +25,11 @@ services:
       - "6390:6379"
     volumes:
       - event-booking-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mailpit:
     image: axllent/mailpit:latest
@@ -28,6 +38,33 @@ services:
     ports:
       - "1026:1025" # SMTP
       - "8026:8025" # Web UI
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: event-booking-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override the host-facing values from .env with the Docker-network
+      # hostnames/ports these dependencies are reachable at from inside the
+      # app container (the .env values use localhost + the host-mapped
+      # ports above, for running the app directly on the host instead).
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/event_booking?schema=public
+      REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+    ports:
+      - "${PORT:-4000}:${PORT:-4000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
 
 volumes:
   event-booking-postgres-data:

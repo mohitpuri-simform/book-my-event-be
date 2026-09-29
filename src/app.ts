@@ -8,6 +8,10 @@ import routes from "./routes";
 
 const app = express();
 
+// Render terminates TLS at a proxy; trust one hop so req.ip (rate limiting)
+// and secure cookies use the real client values.
+app.set("trust proxy", 1);
+
 app.use(cors({ origin: env.CLIENT_URL, credentials: true }));
 
 // Must be mounted before express.json(): Stripe signature verification
