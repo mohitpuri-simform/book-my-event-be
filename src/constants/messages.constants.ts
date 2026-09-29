@@ -1,5 +1,3 @@
-import { formatDurationHuman } from "../utils/duration";
-
 export const MESSAGES = {
   config: {
     invalidEnv: "Invalid environment variables",
@@ -27,10 +25,6 @@ export const MESSAGES = {
     invalidOrExpiredOtp: "Invalid or expired OTP. Please request a new one",
     tooManyFailedAttempts: "Too many failed attempts. Please request a new OTP",
     passwordResetSuccess: "Your password has been reset successfully",
-  },
-  rateLimit: {
-    tooManyRequests: (retryAfterSeconds: number): string =>
-      `Too many requests. Please try again in ${formatDurationHuman(retryAfterSeconds)}.`,
   },
   profile: {
     fetchSuccess: "Profile fetched successfully",

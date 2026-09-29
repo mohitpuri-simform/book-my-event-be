@@ -27,12 +27,6 @@ const envSchema = z.object({
   MAIL_FROM: z.string(),
   OTP_TTL_SECONDS: z.coerce.number().default(600),
   OTP_MAX_VERIFY_ATTEMPTS: z.coerce.number().default(5),
-  FORGOT_PASSWORD_RATE_LIMIT_MAX: z.coerce.number().default(3),
-  FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().default(60),
-  FORGOT_PASSWORD_EMAIL_RATE_LIMIT_MAX: z.coerce.number().default(3),
-  FORGOT_PASSWORD_EMAIL_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().default(3600),
-  RESET_PASSWORD_RATE_LIMIT_MAX: z.coerce.number().default(10),
-  RESET_PASSWORD_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().default(3600),
 
   HOLD_TTL_SECONDS: z.coerce.number().default(300),
 

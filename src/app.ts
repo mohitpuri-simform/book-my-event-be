@@ -8,7 +8,7 @@ import routes from "./routes";
 
 const app = express();
 
-// Render terminates TLS at a proxy; trust one hop so req.ip (rate limiting)
+// Render terminates TLS at a proxy; trust one hop so req.ip
 // and secure cookies use the real client values.
 app.set("trust proxy", 1);
 
