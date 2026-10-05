@@ -5,6 +5,7 @@ import { MESSAGES } from "../constants/messages.constants";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { stripe } from "../lib/stripe";
+import { syncAccountStatus } from "./stripeConnect.service";
 import { ApiError } from "../utils/ApiError";
 
 interface ConfirmedBookingForWallet {
@@ -217,7 +218,18 @@ export interface WalletSummary {
 }
 
 export async function getWalletSummary(organiserId: string): Promise<WalletSummary> {
-  const account = await prisma.organiserStripeAccount.findUnique({ where: { organiserId } });
+  let account = await prisma.organiserStripeAccount.findUnique({ where: { organiserId } });
+
+  // Don't rely solely on the `account.updated` webhook: when the organiser returns
+  // from Stripe onboarding, pull the live account so the status is current.
+  if (account && account.status !== "ACTIVE") {
+    try {
+      await syncAccountStatus(await stripe.accounts.retrieve(account.stripeAccountId));
+      account = await prisma.organiserStripeAccount.findUnique({ where: { organiserId } });
+    } catch (error) {
+      logger.warn({ err: error, organiserId }, "failed to refresh stripe account status");
+    }
+  }
 
   const [aggregates, withdrawnAggregate, availableAggregate] = await Promise.all([
     prisma.walletLedgerEntry.aggregate({

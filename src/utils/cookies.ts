@@ -12,7 +12,6 @@ const baseCookieOptions: CookieOptions = {
   secure: isProduction,
   // Frontend and API are on different sites in production (e.g. vercel.app vs
   // onrender.com); "lax" cookies are not sent on those cross-site XHR calls.
-  // "none" requires secure, which is already on in production.
   sameSite: isProduction ? "none" : "lax",
   path: "/",
 };

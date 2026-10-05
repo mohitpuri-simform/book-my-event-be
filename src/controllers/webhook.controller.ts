@@ -20,15 +20,25 @@ export const postStripeWebhook = asyncHandler(async (req: Request, res: Response
     return;
   }
 
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body as Buffer,
-      signature,
-      env.STRIPE_WEBHOOK_SECRET,
-    );
-  } catch (error) {
-    logger.warn({ err: error }, "stripe webhook signature verification failed");
+  // STRIPE_WEBHOOK_SECRET may hold several comma-separated secrets: the account
+  // destination and the Connect ("connected accounts") destination each have their own.
+  const secrets = env.STRIPE_WEBHOOK_SECRET.split(",")
+    .map((secret) => secret.trim())
+    .filter(Boolean);
+
+  let event: Stripe.Event | undefined;
+  let lastError: unknown;
+  for (const secret of secrets) {
+    try {
+      event = stripe.webhooks.constructEvent(req.body as Buffer, signature, secret);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!event) {
+    logger.warn({ err: lastError }, "stripe webhook signature verification failed");
     res.status(400).json({ success: false, message: MESSAGES.webhooks.invalidSignature });
     return;
   }

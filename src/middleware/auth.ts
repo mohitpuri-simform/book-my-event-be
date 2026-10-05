@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { ACCESS_TOKEN_COOKIE } from "../config/auth";
 import type { Role } from "../../generated/prisma/client";
 import { MESSAGES } from "../constants/messages.constants";
+import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 import { verifyAccessToken } from "../utils/jwt";
 
@@ -28,17 +29,31 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
 }
 
 export function authorize(...allowedRoles: Role[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) {
       next(new ApiError(401, MESSAGES.auth.authenticationRequired));
       return;
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
-      next(new ApiError(403, MESSAGES.auth.forbidden));
-      return;
-    }
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { role: true },
+      });
 
-    next();
+      if (!user) {
+        next(new ApiError(401, MESSAGES.auth.userNoLongerExists));
+        return;
+      }
+
+      if (!allowedRoles.includes(user.role)) {
+        next(new ApiError(403, MESSAGES.auth.forbidden));
+        return;
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
   };
 }
