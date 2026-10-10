@@ -50,22 +50,31 @@ enum SeatStatus {
   BOOKED
 }
 
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+}
+
 model Event {
-  id          String    @id @default(cuid())
+  id          String      @id @default(cuid())
   name        String
   venueStreet String
   venueCity   String
   venueState  String
   date        DateTime
   endDate     DateTime
+  // New events start as DRAFT and are invisible to the public (and
+  // un-holdable) until the organiser publishes them — see event.service.ts.
+  status      EventStatus @default(DRAFT)
   organiserId String
-  organiser   User      @relation(fields: [organiserId], references: [id], onDelete: Cascade)
+  organiser   User        @relation(fields: [organiserId], references: [id], onDelete: Cascade)
   sections    Section[]
   bookings    Booking[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   @@index([organiserId])
+  @@index([status, date])
   @@map("events")
 }
 

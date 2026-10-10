@@ -7,11 +7,11 @@ import {
   patchSection,
   postSection,
 } from "../controllers/section.controller";
-import { authenticate, authorize } from "../middleware/auth";
+import { authenticate, authorize, optionalAuthenticate } from "../middleware/auth";
 
 const router = Router({ mergeParams: true });
 
-router.get("/", getSections);
+router.get("/", optionalAuthenticate, getSections);
 router.post("/", authenticate, authorize(Role.ORGANISER), postSection);
 router.patch("/reorder", authenticate, authorize(Role.ORGANISER), patchReorderSections);
 router.patch("/:sectionId", authenticate, authorize(Role.ORGANISER), patchSection);

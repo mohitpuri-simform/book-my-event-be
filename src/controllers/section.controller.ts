@@ -22,7 +22,7 @@ export const postSection = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getSections = asyncHandler(async (req: Request, res: Response) => {
-  const sections = await listSectionsForEvent(req.params.eventId!);
+  const sections = await listSectionsForEvent(req.params.eventId!, req.user?.id);
   sendSuccess(res, { data: sections, message: MESSAGES.sections.fetchSuccess });
 });
 

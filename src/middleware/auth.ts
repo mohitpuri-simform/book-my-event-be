@@ -28,6 +28,22 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   }
 }
 
+/**
+ * Like `authenticate`, but a request with no access token continues as an
+ * anonymous visitor (`req.user` unset) instead of being rejected — for public
+ * routes that show a little more to the signed-in owner (e.g. their own
+ * draft event). A token that IS present but expired/invalid is still a 401, so
+ * the client's refresh-and-retry flow kicks in rather than the owner silently
+ * being treated as a stranger.
+ */
+export function optionalAuthenticate(req: Request, res: Response, next: NextFunction): void {
+  if (!req.cookies?.[ACCESS_TOKEN_COOKIE]) {
+    next();
+    return;
+  }
+  authenticate(req, res, next);
+}
+
 export function authorize(...allowedRoles: Role[]) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) {

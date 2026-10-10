@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Hold } from "../../generated/prisma/client";
+import { EventStatus, type Hold } from "../../generated/prisma/client";
 import { env } from "../config/env";
 import { MESSAGES } from "../constants/messages.constants";
 import { logger } from "../lib/logger";
@@ -8,6 +8,7 @@ import { deleteIfHoldMatches, isRedisDown, redis } from "../lib/redis";
 import { parseSeatHoldValue, seatHoldKey, type SeatHoldValue } from "../lib/seatHold";
 import { cancelHoldExpiry, scheduleHoldExpiry } from "../queues/holdExpiry.queue";
 import { ApiError } from "../utils/ApiError";
+import { hasEventEnded } from "../utils/eventTime";
 
 export interface HoldView {
   holdId: string;
@@ -45,9 +46,16 @@ function failClosedIfRedisDown(seatId: string, userId: string): void {
 export async function holdSeat(userId: string, seatId: string): Promise<AcquireHoldResult> {
   failClosedIfRedisDown(seatId, userId);
 
-  const seat = await prisma.seat.findUnique({ where: { id: seatId } });
-  if (!seat) {
+  const seat = await prisma.seat.findUnique({
+    where: { id: seatId },
+    include: { section: { select: { event: { select: { status: true, endDate: true } } } } },
+  });
+  // A seat on an unpublished event doesn't exist as far as buyers are concerned.
+  if (!seat || seat.section.event.status !== EventStatus.PUBLISHED) {
     throw new ApiError(404, MESSAGES.seats.notFound);
+  }
+  if (hasEventEnded(seat.section.event)) {
+    throw new ApiError(409, MESSAGES.events.hasEnded);
   }
   if (seat.status === "BOOKED") {
     throw new ApiError(409, MESSAGES.holds.seatUnavailable);

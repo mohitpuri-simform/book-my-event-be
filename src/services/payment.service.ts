@@ -8,6 +8,7 @@ import { parseSeatHoldValue, seatHoldKey } from "../lib/seatHold";
 import { stripe } from "../lib/stripe";
 import { cancelHoldExpiry } from "../queues/holdExpiry.queue";
 import { ApiError } from "../utils/ApiError";
+import { hasEventEnded } from "../utils/eventTime";
 import { generateTicketRef } from "./booking.service";
 import { releaseHoldRecord, validateHoldsForCheckout, type ValidatedHold } from "./hold.service";
 import { syncAccountStatus } from "./stripeConnect.service";
@@ -38,6 +39,17 @@ export async function createCheckout(userId: string, holdIds: string[]): Promise
   }
 
   const { holds } = result;
+
+  // A hold can outlive its event by a few minutes — never take money for an
+  // event that is already over.
+  const events = await prisma.event.findMany({
+    where: { id: { in: [...new Set(holds.map((h) => h.eventId))] } },
+    select: { endDate: true },
+  });
+  if (events.some((event) => hasEventEnded(event))) {
+    throw new ApiError(409, MESSAGES.events.hasEnded);
+  }
+
   const amountCents = holds.reduce((sum, h) => sum + h.priceCents, 0);
 
   let intent: Stripe.PaymentIntent;

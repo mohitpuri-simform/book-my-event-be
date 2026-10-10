@@ -36,6 +36,13 @@ export const MESSAGES = {
     updateSuccess: "Event updated successfully",
     fetchSuccess: "Events fetched successfully",
     invalidEndDate: "Event end date must be after the start date",
+    publishSuccess: "Event published successfully",
+    unpublishSuccess: "Event unpublished successfully",
+    noSectionsToPublish: "Add at least one section with seats before publishing this event",
+    cannotUnpublishWithBookings: "Cannot unpublish an event that already has bookings",
+    hasEnded: "This event has already ended",
+    cannotPublishEnded: "This event has already ended, so it can't be published",
+    endDateInPast: "Event end date must be in the future",
   },
   sections: {
     notFound: "Section not found",

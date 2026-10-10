@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { MESSAGES } from "../constants/messages.constants";
+import { paginationQuerySchema } from "./pagination.schema";
 
 export const createEventSchema = z
   .object({
@@ -12,12 +14,15 @@ export const createEventSchema = z
   .refine((data) => data.endDate > data.date, {
     message: "endDate must be after date",
     path: ["endDate"],
+  })
+  // Only on create: you can't open an event that is already over. Updates are
+  // deliberately exempt so an organiser can still edit a started or ended event.
+  .refine((data) => data.endDate > new Date(), {
+    message: MESSAGES.events.endDateInPast,
+    path: ["endDate"],
   });
 
-export const listEventsQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
-});
+export const listEventsQuerySchema = paginationQuerySchema;
 
 export const updateEventSchema = z
   .object({

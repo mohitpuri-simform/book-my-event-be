@@ -1,4 +1,5 @@
 import { MESSAGES } from "../constants/messages.constants";
+import { EventStatus } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 import type {
@@ -53,7 +54,17 @@ export async function createSectionWithSeats(
   });
 }
 
-export async function listSectionsForEvent(eventId: string) {
+export async function listSectionsForEvent(eventId: string, viewerId?: string) {
+  // Same visibility rule as the event itself: a draft's seat map is the
+  // owner's eyes only.
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { status: true, organiserId: true },
+  });
+  if (!event || (event.status === EventStatus.DRAFT && event.organiserId !== viewerId)) {
+    throw new ApiError(404, MESSAGES.events.notFound);
+  }
+
   return prisma.section.findMany({
     where: { eventId },
     orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
