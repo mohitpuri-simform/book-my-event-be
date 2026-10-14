@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { attachUserIfPresent } from "../middleware/auth";
 import { postSupportTicket } from "../controllers/support.controller";
 
 const router = Router();
@@ -6,6 +7,7 @@ const router = Router();
 // Deliberately no `authenticate` and no Redis-backed rate limiter here:
 // this is the escape hatch for when the system — Redis included — is
 // unavailable, so it must not itself depend on a fully healthy stack.
-router.post("/tickets", postSupportTicket);
+// Anonymous tickets are allowed; a valid session just gets attached for context.
+router.post("/tickets", attachUserIfPresent, postSupportTicket);
 
 export default router;

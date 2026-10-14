@@ -44,6 +44,25 @@ export function optionalAuthenticate(req: Request, res: Response, next: NextFunc
   authenticate(req, res, next);
 }
 
+/**
+ * Best-effort identification: sets `req.user` when the request carries a valid
+ * access token, and otherwise just carries on as anonymous — never a 401 (an
+ * expired token shouldn't stop someone from reporting a problem). JWT-only, no
+ * Redis or DB lookup.
+ */
+export function attachUserIfPresent(req: Request, _res: Response, next: NextFunction): void {
+  const token = req.cookies?.[ACCESS_TOKEN_COOKIE] as string | undefined;
+  if (token) {
+    try {
+      const payload = verifyAccessToken(token);
+      req.user = { id: payload.sub, role: payload.role };
+    } catch {
+      // invalid/expired token: treat as anonymous
+    }
+  }
+  next();
+}
+
 export function authorize(...allowedRoles: Role[]) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) {

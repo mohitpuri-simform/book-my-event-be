@@ -10,10 +10,14 @@ import { cancelHoldExpiry, scheduleHoldExpiry } from "../queues/holdExpiry.queue
 import { ApiError } from "../utils/ApiError";
 import { hasEventEnded } from "../utils/eventTime";
 
+/** Most seats one user can hold at once (frontend mirrors this). */
+export const MAX_HOLDS_PER_USER = 5;
+
 export interface HoldView {
   holdId: string;
   seatId: string;
   eventId: string;
+  eventName: string;
   sectionId: string;
   row: number;
   col: number;
@@ -48,7 +52,9 @@ export async function holdSeat(userId: string, seatId: string): Promise<AcquireH
 
   const seat = await prisma.seat.findUnique({
     where: { id: seatId },
-    include: { section: { select: { event: { select: { status: true, endDate: true } } } } },
+    include: {
+      section: { select: { event: { select: { id: true, status: true, endDate: true } } } },
+    },
   });
   // A seat on an unpublished event doesn't exist as far as buyers are concerned.
   if (!seat || seat.section.event.status !== EventStatus.PUBLISHED) {
@@ -90,6 +96,21 @@ export async function holdSeat(userId: string, seatId: string): Promise<AcquireH
     await scheduleHoldExpiry({ holdId: hold.id, seatId });
     logger.info({ holdId: hold.id, seatId, userId }, "hold created");
 
+    await releaseHoldsOnOtherEvents(userId, seat.section.event.id, hold.id);
+
+    // Checked after the hold exists (not before) so concurrent requests from
+    // the same user can't all slip under the limit: whoever pushes the count
+    // past it gives its own hold back.
+    const activeHolds = await prisma.hold.count({
+      where: { userId, status: "ACTIVE", expiresAt: { gt: new Date() } },
+    });
+    if (activeHolds > MAX_HOLDS_PER_USER) {
+      await releaseHoldRecord(hold, "RELEASED");
+      await cancelHoldExpiry(hold.id);
+      logger.warn({ holdId: hold.id, seatId, userId, activeHolds }, "hold limit reached");
+      throw new ApiError(409, MESSAGES.holds.limitReached);
+    }
+
     return {
       holdId: hold.id,
       seatId,
@@ -121,6 +142,30 @@ export async function holdSeat(userId: string, seatId: string): Promise<AcquireH
   }
 
   throw new ApiError(409, MESSAGES.holds.seatUnavailable);
+}
+
+/**
+ * A cart only ever spans one event: starting to hold seats on a new event
+ * drops whatever the user was holding on any other event.
+ */
+async function releaseHoldsOnOtherEvents(
+  userId: string,
+  eventId: string,
+  keepHoldId: string,
+): Promise<void> {
+  const stale = await prisma.hold.findMany({
+    where: {
+      userId,
+      status: "ACTIVE",
+      id: { not: keepHoldId },
+      seat: { section: { eventId: { not: eventId } } },
+    },
+  });
+
+  for (const other of stale) {
+    await releaseHoldRecord(other, "RELEASED");
+    await cancelHoldExpiry(other.id);
+  }
 }
 
 /**
@@ -200,7 +245,7 @@ interface HoldWithSeat extends Hold {
     col: number;
     priceCents: number;
     sectionId: string;
-    section: { eventId: string };
+    section: { eventId: string; event: { name: string } };
   };
 }
 
@@ -216,7 +261,13 @@ export async function listMyHolds(
 ): Promise<{ holds: HoldView[]; effectiveExpiresAt: Date | null }> {
   const candidates = (await prisma.hold.findMany({
     where: { userId, status: "ACTIVE" },
-    include: { seat: { include: { section: { select: { eventId: true } } } } },
+    include: {
+      seat: {
+        include: {
+          section: { select: { eventId: true, event: { select: { name: true } } } },
+        },
+      },
+    },
     orderBy: { createdAt: "asc" },
   })) as HoldWithSeat[];
 
@@ -240,6 +291,7 @@ export async function listMyHolds(
       holdId: hold.id,
       seatId: hold.seatId,
       eventId: hold.seat.section.eventId,
+      eventName: hold.seat.section.event.name,
       sectionId: hold.seat.sectionId,
       row: hold.seat.row,
       col: hold.seat.col,
@@ -276,7 +328,13 @@ export async function validateHoldsForCheckout(
 ): Promise<{ valid: true; holds: ValidatedHold[] } | { valid: false; invalidHoldIds: string[] }> {
   const rows = (await prisma.hold.findMany({
     where: { id: { in: holdIds } },
-    include: { seat: { include: { section: { select: { eventId: true } } } } },
+    include: {
+      seat: {
+        include: {
+          section: { select: { eventId: true, event: { select: { name: true } } } },
+        },
+      },
+    },
   })) as HoldWithSeat[];
 
   const byId = new Map(rows.map((r) => [r.id, r]));

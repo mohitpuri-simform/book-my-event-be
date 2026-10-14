@@ -77,6 +77,7 @@ export const MESSAGES = {
     holdSuccess: "Seat held successfully",
     releaseSuccess: "Hold released",
     fetchSuccess: "Holds fetched successfully",
+    limitReached: "You can hold at most 5 seats at a time",
     someHoldsExpired: "One or more of your held seats have expired",
   },
   checkout: {

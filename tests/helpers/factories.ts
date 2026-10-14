@@ -34,6 +34,7 @@ export async function createEventWithSeat(priceCents = 2500) {
       venueState: "Test State",
       date: new Date(Date.now() + 86400000),
       endDate: new Date(Date.now() + 90000000),
+      status: "PUBLISHED",
       organiserId: organiser.id,
     },
   });
@@ -47,4 +48,32 @@ export async function createEventWithSeat(priceCents = 2500) {
   });
 
   return { organiser, event, section, seat };
+}
+
+/** A finalised booking (hold CONFIRMED + seat BOOKED) for `userId` on the given seat. */
+export async function createBookingFor(
+  userId: string,
+  seat: { id: string; priceCents: number },
+  eventId: string,
+) {
+  const hold = await prisma.hold.create({
+    data: {
+      id: randomUUID(),
+      seatId: seat.id,
+      userId,
+      status: "CONFIRMED",
+      expiresAt: new Date(),
+    },
+  });
+  await prisma.seat.update({ where: { id: seat.id }, data: { status: "BOOKED" } });
+  return prisma.booking.create({
+    data: {
+      holdId: hold.id,
+      seatId: seat.id,
+      userId,
+      eventId,
+      priceCents: seat.priceCents,
+      ticketRef: `TKT-${randomUUID().slice(0, 8).toUpperCase()}`,
+    },
+  });
 }

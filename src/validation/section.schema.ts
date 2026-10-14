@@ -4,13 +4,15 @@ import { MESSAGES } from "../constants/messages.constants";
 export const MAX_SECTION_ROWS = 50;
 export const MAX_SECTION_SEATS_PER_ROW = 50;
 export const MAX_SECTION_SEATS = 500;
+// $1,000 per seat; also keeps the value well inside Postgres' int range.
+export const MAX_PRICE_CENTS = 100_000;
 
 export const createSectionSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
     rows: z.number().int().min(1).max(MAX_SECTION_ROWS),
     seatsPerRow: z.number().int().min(1).max(MAX_SECTION_SEATS_PER_ROW),
-    priceCents: z.number().int().min(0),
+    priceCents: z.number().int().min(0).max(MAX_PRICE_CENTS),
     aisleAfterSeat: z.number().int().min(1).nullable().optional(),
   })
   .refine((data) => data.rows * data.seatsPerRow <= MAX_SECTION_SEATS, {
@@ -25,7 +27,7 @@ export const createSectionSchema = z
 export const updateSectionSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
-    priceCents: z.number().int().min(0).optional(),
+    priceCents: z.number().int().min(0).max(MAX_PRICE_CENTS).optional(),
   })
   .refine((data) => data.name !== undefined || data.priceCents !== undefined, {
     message: "At least one field must be provided",

@@ -10,6 +10,8 @@
     "build": "prisma generate && tsc -p tsconfig.json && npm run copy-assets",
     "copy-assets": "node -e \"require('fs').cpSync('src/templates','dist/src/templates',{recursive:true})\"",
     "start": "node dist/src/server.js",
+    "test:up": "docker compose -f docker-compose.test.yml up -d --wait && DATABASE_URL=postgresql://postgres:postgres@localhost:5545/event_booking_test?schema=public prisma migrate deploy",
+    "test:down": "docker compose -f docker-compose.test.yml down -v",
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --write .",

@@ -24,8 +24,8 @@ export const postEvent = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getEvents = asyncHandler(async (req: Request, res: Response) => {
-  const { page, limit } = listEventsQuerySchema.parse(req.query);
-  const { items, total } = await listEvents(page, limit);
+  const { page, limit, startFrom, startTo } = listEventsQuerySchema.parse(req.query);
+  const { items, total } = await listEvents(page, limit, { startFrom, startTo });
   sendSuccess(res, {
     data: items,
     message: MESSAGES.events.fetchSuccess,

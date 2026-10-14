@@ -54,8 +54,10 @@ services:
       # ports above, for running the app directly on the host instead).
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/event_booking?schema=public
       REDIS_URL: redis://redis:6379
-      SMTP_HOST: mailpit
-      SMTP_PORT: 1025
+      # Defaults to the Mailpit container; set DOCKER_SMTP_HOST/PORT in .env to
+      # send through a real SMTP provider (e.g. Brevo) from inside Docker.
+      SMTP_HOST: ${DOCKER_SMTP_HOST:-mailpit}
+      SMTP_PORT: ${DOCKER_SMTP_PORT:-1025}
     ports:
       - "${PORT:-4000}:${PORT:-4000}"
     depends_on:

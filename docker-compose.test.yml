@@ -1,0 +1,37 @@
+# Disposable instances for `npm test` only (see .env.test). The test helpers wipe
+# every table and flush Redis between tests, so they must never share an instance
+# with dev data. No volumes: state is thrown away with the containers.
+#
+#   npm run test:up     start these + apply migrations
+#   npm test
+#   npm run test:down   remove them
+name: event-booking-test
+
+services:
+  postgres-test:
+    image: postgres:17-alpine
+    container_name: event-booking-postgres-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: event_booking_test
+    ports:
+      - "5545:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: event-booking-redis-test
+    ports:
+      - "6391:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

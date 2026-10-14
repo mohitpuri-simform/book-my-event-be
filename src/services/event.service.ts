@@ -2,7 +2,7 @@ import { MESSAGES } from "../constants/messages.constants";
 import { EventStatus } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
-import { hasEventEnded } from "../utils/eventTime";
+import { expiryCutoff, hasEventEnded } from "../utils/eventTime";
 import type { CreateEventInput, UpdateEventInput } from "../validation/event.schema";
 
 export interface EventBookingStats {
@@ -79,10 +79,21 @@ export async function createEvent(organiserId: string, input: CreateEventInput) 
  * are paged as one sequence: the page window is filled from the upcoming
  * group, and whatever is left over from the ended group.
  */
-export async function listEvents(page: number, limit: number) {
-  const now = new Date();
-  const upcomingWhere = { status: EventStatus.PUBLISHED, endDate: { gt: now } };
-  const endedWhere = { status: EventStatus.PUBLISHED, endDate: { lte: now } };
+export interface EventListFilters {
+  startFrom?: string | undefined;
+  startTo?: string | undefined;
+}
+
+export async function listEvents(page: number, limit: number, filters: EventListFilters = {}) {
+  const cutoff = expiryCutoff();
+  // Dates are stored as day-at-00:00-UTC, so "through startTo" means before the next day.
+  const startRange = {
+    ...(filters.startFrom && { gte: new Date(filters.startFrom) }),
+    ...(filters.startTo && { lt: new Date(new Date(filters.startTo).getTime() + 24 * 3600_000) }),
+  };
+  const dateFilter = Object.keys(startRange).length > 0 ? { date: startRange } : {};
+  const upcomingWhere = { status: EventStatus.PUBLISHED, endDate: { gte: cutoff }, ...dateFilter };
+  const endedWhere = { status: EventStatus.PUBLISHED, endDate: { lt: cutoff }, ...dateFilter };
 
   const [upcomingTotal, endedTotal] = await Promise.all([
     prisma.event.count({ where: upcomingWhere }),
@@ -209,7 +220,7 @@ export async function updateEvent(eventId: string, organiserId: string, input: U
 
   const nextDate = input.date ?? event.date;
   const nextEndDate = input.endDate ?? event.endDate;
-  if (nextEndDate <= nextDate) {
+  if (nextEndDate < nextDate) {
     throw new ApiError(422, MESSAGES.events.invalidEndDate);
   }
 
