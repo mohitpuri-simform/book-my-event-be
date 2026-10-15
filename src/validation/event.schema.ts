@@ -25,13 +25,10 @@ export const createEventSchema = z
 
 const dayParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected yyyy-mm-dd");
 
-// Filter on the event's start day (inclusive on both ends).
-export const listEventsQuerySchema = paginationQuerySchema
-  .extend({ startFrom: dayParam.optional(), startTo: dayParam.optional() })
-  .refine((q) => !q.startFrom || !q.startTo || q.startFrom <= q.startTo, {
-    message: "startFrom must not be after startTo",
-    path: ["startTo"],
-  });
+// Only events starting on or after this day (yyyy-mm-dd).
+export const listEventsQuerySchema = paginationQuerySchema.extend({
+  startFrom: dayParam.optional(),
+});
 
 export const updateEventSchema = z
   .object({

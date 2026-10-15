@@ -72,6 +72,10 @@ export async function createEvent(organiserId: string, input: CreateEventInput) 
   });
 }
 
+export interface EventListFilters {
+  startFrom?: string | undefined;
+}
+
 /**
  * Public list: upcoming events first (soonest first), then ended ones (most
  * recently ended first) — ended events stay visible but never push live ones
@@ -79,19 +83,10 @@ export async function createEvent(organiserId: string, input: CreateEventInput) 
  * are paged as one sequence: the page window is filled from the upcoming
  * group, and whatever is left over from the ended group.
  */
-export interface EventListFilters {
-  startFrom?: string | undefined;
-  startTo?: string | undefined;
-}
-
 export async function listEvents(page: number, limit: number, filters: EventListFilters = {}) {
   const cutoff = expiryCutoff();
-  // Dates are stored as day-at-00:00-UTC, so "through startTo" means before the next day.
-  const startRange = {
-    ...(filters.startFrom && { gte: new Date(filters.startFrom) }),
-    ...(filters.startTo && { lt: new Date(new Date(filters.startTo).getTime() + 24 * 3600_000) }),
-  };
-  const dateFilter = Object.keys(startRange).length > 0 ? { date: startRange } : {};
+  // Dates are stored as day-at-00:00-UTC, so a yyyy-mm-dd compares directly.
+  const dateFilter = filters.startFrom ? { date: { gte: new Date(filters.startFrom) } } : {};
   const upcomingWhere = { status: EventStatus.PUBLISHED, endDate: { gte: cutoff }, ...dateFilter };
   const endedWhere = { status: EventStatus.PUBLISHED, endDate: { lt: cutoff }, ...dateFilter };
 

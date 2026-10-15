@@ -161,7 +161,7 @@ enum PaymentAttemptStatus {
 // attempt rather than creating a new one). Several attempts from the same
 // multi-seat cart checkout can share one `stripePaymentIntentId`; the
 // `holdId` carried in the PaymentIntent metadata is what uniquely
-// identifies which attempt a given confirmation belongs to (see §3.1).
+// identifies which attempt a given confirmation belongs to.
 model PaymentAttempt {
   id                    String               @id @default(cuid())
   holdId                String               @unique

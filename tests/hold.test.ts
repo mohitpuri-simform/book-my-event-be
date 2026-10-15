@@ -16,7 +16,7 @@ afterAll(async () => {
 });
 
 describe("seat holds", () => {
-  it("exactly one of two concurrent hold requests for the same seat succeeds (§6.1)", async () => {
+  it("exactly one of two concurrent hold requests for the same seat succeeds", async () => {
     const { event, seat } = await createEventWithSeat();
     const userA = await createTestUser();
     const userB = await createTestUser();
@@ -35,7 +35,7 @@ describe("seat holds", () => {
     expect(activeHoldCount).toBe(1);
   });
 
-  it("re-selecting a seat you already hold is idempotent, not a conflict (§6.4)", async () => {
+  it("re-selecting a seat you already hold is idempotent, not a conflict", async () => {
     const { event, seat } = await createEventWithSeat();
     const user = await createTestUser();
 

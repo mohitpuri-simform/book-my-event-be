@@ -36,7 +36,7 @@ afterAll(async () => {
 });
 
 describe("stripe webhook reconciliation", () => {
-  it("a replayed webhook finalizes the booking only once (§6.2)", async () => {
+  it("a replayed webhook finalizes the booking only once", async () => {
     const { seat } = await createEventWithSeat(3000);
     const user = await createTestUser();
     const hold = await holdSeat(user.id, seat.id);
@@ -73,7 +73,7 @@ describe("stripe webhook reconciliation", () => {
     expect(attempt.status).toBe("CONFIRMED");
   });
 
-  it("a confirmation arriving after the hold already expired is rejected and refunded, not booked (§6.3)", async () => {
+  it("a confirmation arriving after the hold already expired is rejected and refunded, not booked", async () => {
     const { seat } = await createEventWithSeat(1500);
     const user = await createTestUser();
     const hold = await holdSeat(user.id, seat.id);
@@ -112,7 +112,7 @@ describe("stripe webhook reconciliation", () => {
     );
   });
 
-  it("a failed payment releases the hold and seat immediately, not on TTL (§6.5)", async () => {
+  it("a failed payment releases the hold and seat immediately, not on TTL", async () => {
     const { seat } = await createEventWithSeat(1200);
     const user = await createTestUser();
     const hold = await holdSeat(user.id, seat.id);
