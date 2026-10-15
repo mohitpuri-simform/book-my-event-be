@@ -16,11 +16,10 @@ const transferCreate = vi.mocked(stripe.transfers.create);
 
 // Real Stripe SDK error instances, so the tests exercise the same
 // `instanceof` + HTTP status classification the service uses.
-function stripeError(
-  ErrorClass: new (raw: { message: string; type: string; statusCode?: number }) => Error,
-  statusCode?: number,
-): Error {
-  return new ErrorClass({ message: "stripe error", type: "test", statusCode });
+type StripeRaw = NonNullable<ConstructorParameters<typeof Stripe.errors.StripeError>[0]>;
+
+function stripeError(ErrorClass: new (raw: StripeRaw) => Error, statusCode?: number): Error {
+  return new ErrorClass({ message: "stripe error", type: "api_error", statusCode });
 }
 const errors = Stripe.errors;
 
@@ -124,7 +123,7 @@ describe("organiser withdrawal idempotency", () => {
     async function failWith(error: Error) {
       const organiser = await setupOrganiserWithBalance();
       transferCreate.mockRejectedValueOnce(error);
-      const result = await withdrawAvailableBalance(organiser.id).catch((e) => e);
+      const result = await withdrawAvailableBalance(organiser.id).catch((e: unknown) => e);
       const [withdrawal] = await prisma.withdrawal.findMany();
       return { result, status: withdrawal!.status };
     }
