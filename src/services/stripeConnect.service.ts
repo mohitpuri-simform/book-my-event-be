@@ -27,23 +27,36 @@ export async function createOrGetConnectAccount(
 
   let account: Stripe.Account;
   try {
-    account = await stripe.accounts.create({
-      type: "express",
-      email: user?.email,
-      capabilities: { transfers: { requested: true } },
-    });
+    // One Stripe account per organiser however many times this runs at once.
+    account = await stripe.accounts.create(
+      {
+        type: "express",
+        email: user?.email,
+        capabilities: { transfers: { requested: true } },
+      },
+      { idempotencyKey: `connect-account-${organiserId}` },
+    );
   } catch (error) {
     logger.error({ err: error, organiserId }, "failed to create stripe connect account");
     throw new ApiError(502, MESSAGES.stripeConnect.onboardingLinkCreateFailed);
   }
 
-  const created = await prisma.organiserStripeAccount.create({
-    data: {
-      organiserId,
-      stripeAccountId: account.id,
-      status: "ONBOARDING_INCOMPLETE",
-    },
-  });
+  let created: OrganiserStripeAccount;
+  try {
+    created = await prisma.organiserStripeAccount.create({
+      data: {
+        organiserId,
+        stripeAccountId: account.id,
+        status: "ONBOARDING_INCOMPLETE",
+      },
+    });
+  } catch (error) {
+    // A concurrent request won the insert (same Stripe account, thanks to the
+    // idempotency key above) — use its row instead of failing.
+    const winner = await prisma.organiserStripeAccount.findUnique({ where: { organiserId } });
+    if (winner) return winner;
+    throw error;
+  }
 
   logger.info({ organiserId, stripeAccountId: account.id }, "stripe connect account created");
 

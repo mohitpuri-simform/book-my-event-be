@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 import { Prisma } from "../../generated/prisma/client";
 import { MESSAGES } from "../constants/messages.constants";
@@ -52,14 +53,24 @@ export async function createCheckout(userId: string, holdIds: string[]): Promise
 
   const amountCents = holds.reduce((sum, h) => sum + h.priceCents, 0);
 
+  // Same user + same holds + same amount => the same PaymentIntent, so a
+  // double-click or retry can't create a second one the user could pay twice.
+  // (Hold ids are unique per hold, so a new selection always gets a new key.)
+  const checkoutKey = createHash("sha256")
+    .update(JSON.stringify([userId, holds.map((h) => h.holdId).sort(), amountCents]))
+    .digest("hex");
+
   let intent: Stripe.PaymentIntent;
   try {
-    intent = await stripe.paymentIntents.create({
-      amount: amountCents,
-      currency: "usd",
-      payment_method_types: ["card"],
-      metadata: { userId, holdIds: JSON.stringify(holds.map((h) => h.holdId)) },
-    });
+    intent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: "usd",
+        payment_method_types: ["card"],
+        metadata: { userId, holdIds: JSON.stringify(holds.map((h) => h.holdId)) },
+      },
+      { idempotencyKey: `checkout-${checkoutKey}` },
+    );
   } catch (error) {
     logger.error({ err: error, userId, holdIds }, "failed to create stripe payment intent");
     throw new ApiError(502, MESSAGES.payments.intentCreateFailed);
@@ -125,6 +136,32 @@ export async function getCheckoutStatus(
   return attempts;
 }
 
+/**
+ * Refunds one hold's share of a payment. The idempotency key is per
+ * (reason, hold, payment), so a retried call or a redelivered webhook can never
+ * refund the same money twice. A failure is logged, not thrown — the webhook
+ * must still be acknowledged.
+ */
+async function refundHoldPayment(
+  reason: "expired-before-confirmation" | "duplicate-payment",
+  holdId: string,
+  paymentIntentId: string,
+  amountCents: number,
+): Promise<void> {
+  try {
+    await stripe.refunds.create(
+      { payment_intent: paymentIntentId, amount: amountCents },
+      { idempotencyKey: `refund-${reason}-${holdId}-${paymentIntentId}` },
+    );
+    logger.info({ holdId, paymentIntentId, amountCents, reason }, "payment refunded");
+  } catch (error) {
+    logger.error(
+      { err: error, holdId, paymentIntentId, amountCents, reason },
+      "failed to issue refund",
+    );
+  }
+}
+
 function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
@@ -161,7 +198,23 @@ async function finalizeAttempt(holdId: string, paymentIntentId: string): Promise
   }
 
   if (attempt.status === "CONFIRMED") {
-    logger.info({ holdId, paymentIntentId }, "duplicate webhook confirmation, already confirmed");
+    if (attempt.stripePaymentIntentId === paymentIntentId) {
+      logger.info({ holdId, paymentIntentId }, "duplicate webhook confirmation, already confirmed");
+      return;
+    }
+
+    // The hold was already paid for by a different PaymentIntent, so this is a
+    // second charge for the same seat: refund it rather than keep the money.
+    logger.error(
+      {
+        holdId,
+        paymentIntentId,
+        confirmedPaymentIntentId: attempt.stripePaymentIntentId,
+        userId: attempt.userId,
+      },
+      "second payment for an already-confirmed hold — refunding the extra charge",
+    );
+    await refundHoldPayment("duplicate-payment", holdId, paymentIntentId, attempt.amountCents);
     return;
   }
 
@@ -193,14 +246,12 @@ async function finalizeAttempt(holdId: string, paymentIntentId: string): Promise
       "payment confirmed after hold expired/re-held — refunding instead of booking",
     );
 
-    try {
-      await stripe.refunds.create({ payment_intent: paymentIntentId, amount: attempt.amountCents });
-    } catch (error) {
-      logger.error(
-        { err: error, holdId, paymentIntentId },
-        "failed to issue refund for expired-before-confirmation payment attempt",
-      );
-    }
+    await refundHoldPayment(
+      "expired-before-confirmation",
+      holdId,
+      paymentIntentId,
+      attempt.amountCents,
+    );
     return;
   }
 
@@ -219,7 +270,12 @@ async function finalizeAttempt(holdId: string, paymentIntentId: string): Promise
     }),
     prisma.hold.update({ where: { id: holdId }, data: { status: "CONFIRMED" } }),
     prisma.seat.update({ where: { id: seatId }, data: { status: "BOOKED" } }),
-    prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { status: "CONFIRMED" } }),
+    // Record the intent that actually paid, so a later payment from any other
+    // intent for this hold is recognisable as an extra charge.
+    prisma.paymentAttempt.update({
+      where: { id: attempt.id },
+      data: { status: "CONFIRMED", stripePaymentIntentId: paymentIntentId },
+    }),
   ]);
 
   await deleteIfHoldMatches(seatHoldKey(seatId), holdId);

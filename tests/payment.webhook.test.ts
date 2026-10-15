@@ -109,7 +109,62 @@ describe("stripe webhook reconciliation", () => {
 
     expect(stripe.refunds.create).toHaveBeenCalledWith(
       expect.objectContaining({ payment_intent: "pi_late", amount: 1500 }),
+      { idempotencyKey: `refund-expired-before-confirmation-${hold.holdId}-pi_late` },
     );
+  });
+
+  it("a second payment (different PaymentIntent) for an already-confirmed hold is refunded, not kept", async () => {
+    const { seat } = await createEventWithSeat(2000);
+    const user = await createTestUser();
+    const hold = await holdSeat(user.id, seat.id);
+
+    await prisma.paymentAttempt.create({
+      data: {
+        holdId: hold.holdId,
+        userId: user.id,
+        stripePaymentIntentId: "pi_first",
+        amountCents: 2000,
+        status: "PENDING",
+      },
+    });
+    const metadata = { holdIds: JSON.stringify([hold.holdId]) };
+
+    await handleStripeWebhookEvent(
+      makeStripeEvent("evt_first", "payment_intent.succeeded", { id: "pi_first", metadata }),
+    );
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+
+    // The user also paid a second, separate intent for the same seat.
+    await handleStripeWebhookEvent(
+      makeStripeEvent("evt_second", "payment_intent.succeeded", { id: "pi_second", metadata }),
+    );
+
+    expect(await prisma.booking.count({ where: { seatId: seat.id } })).toBe(1);
+    expect(stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      { payment_intent: "pi_second", amount: 2000 },
+      { idempotencyKey: `refund-duplicate-payment-${hold.holdId}-pi_second` },
+    );
+  });
+
+  it("checkout creates the PaymentIntent with a stable idempotency key for the same cart", async () => {
+    const { seat } = await createEventWithSeat(2500);
+    const user = await createTestUser();
+    const hold = await holdSeat(user.id, seat.id);
+    vi.mocked(stripe.paymentIntents.create).mockResolvedValue({
+      id: "pi_checkout",
+      client_secret: "secret",
+    } as never);
+    const { createCheckout } = await import("../src/services/payment.service");
+
+    await createCheckout(user.id, [hold.holdId]);
+    await createCheckout(user.id, [hold.holdId]); // double-click / retry
+
+    const calls = vi.mocked(stripe.paymentIntents.create).mock.calls;
+    expect(calls).toHaveLength(2);
+    const keys = calls.map((c) => (c[1] as { idempotencyKey: string }).idempotencyKey);
+    expect(keys[0]).toMatch(/^checkout-[0-9a-f]{64}$/);
+    expect(keys[1]).toBe(keys[0]);
   });
 
   it("a failed payment releases the hold and seat immediately, not on TTL", async () => {

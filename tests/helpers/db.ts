@@ -7,6 +7,9 @@ import { redis } from "../../src/lib/redis";
  * docker-compose one) between tests — never point this at anything else.
  */
 export async function resetState(): Promise<void> {
+  await prisma.walletLedgerEntry.deleteMany();
+  await prisma.withdrawal.deleteMany();
+  await prisma.organiserStripeAccount.deleteMany();
   await prisma.booking.deleteMany();
   await prisma.paymentAttempt.deleteMany();
   await prisma.processedWebhookEvent.deleteMany();

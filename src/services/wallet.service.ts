@@ -1,4 +1,4 @@
-import type Stripe from "stripe";
+import Stripe from "stripe";
 import type { Withdrawal } from "../../generated/prisma/client";
 import { env } from "../config/env";
 import { MESSAGES } from "../constants/messages.constants";
@@ -217,6 +217,29 @@ export interface WalletSummary {
   availableCents: number;
 }
 
+/**
+ * Safety net for entries stuck in PENDING_FEE: if the `charge.updated` webhook
+ * never arrived (not forwarded locally, or dropped), ask Stripe for the fee
+ * directly. Entries whose fee still isn't available simply stay pending.
+ * Best-effort — a Stripe hiccup must never break the wallet screen.
+ */
+async function resolvePendingFees(organiserId: string): Promise<void> {
+  try {
+    const pending = await prisma.walletLedgerEntry.findMany({
+      where: { organiserId, status: "PENDING_FEE" },
+      select: { stripePaymentIntentId: true },
+      distinct: ["stripePaymentIntentId"],
+      take: 10,
+    });
+
+    for (const { stripePaymentIntentId } of pending) {
+      await creditWalletForPaymentIntent(stripePaymentIntentId);
+    }
+  } catch (error) {
+    logger.warn({ err: error, organiserId }, "failed to resolve pending wallet fees");
+  }
+}
+
 export async function getWalletSummary(organiserId: string): Promise<WalletSummary> {
   let account = await prisma.organiserStripeAccount.findUnique({ where: { organiserId } });
 
@@ -230,6 +253,8 @@ export async function getWalletSummary(organiserId: string): Promise<WalletSumma
       logger.warn({ err: error, organiserId }, "failed to refresh stripe account status");
     }
   }
+
+  await resolvePendingFees(organiserId);
 
   const [aggregates, withdrawnAggregate, availableAggregate] = await Promise.all([
     prisma.walletLedgerEntry.aggregate({
@@ -256,9 +281,114 @@ export async function getWalletSummary(organiserId: string): Promise<WalletSumma
   };
 }
 
-interface ClaimedWithdrawal {
-  id: string;
-  amountCents: number;
+type TransferErrorKind = "in-progress" | "rejected" | "unknown";
+
+/**
+ * Decides what a failed transfer call tells us, from Stripe's own error classes
+ * and HTTP status (stable, documented semantics) rather than a hand-kept list of
+ * error names:
+ *  - idempotency error  → the same withdrawal's transfer is being processed
+ *  - Stripe 4xx         → the request was rejected, the transfer did NOT happen
+ *  - anything else      → a timeout, dropped connection, 5xx or non-Stripe error:
+ *                         the outcome is unknown and must never be treated as
+ *                         "failed", because the money may already have moved
+ */
+function classifyTransferError(error: unknown): TransferErrorKind {
+  if (error instanceof Stripe.errors.StripeIdempotencyError) return "in-progress";
+  if (
+    error instanceof Stripe.errors.StripeError &&
+    error.statusCode !== undefined &&
+    error.statusCode >= 400 &&
+    error.statusCode < 500
+  ) {
+    return "rejected";
+  }
+  return "unknown";
+}
+
+/**
+ * Sends the Stripe transfer for a claimed (PENDING) withdrawal and records the
+ * outcome. The idempotency key is derived from the withdrawal id, so calling
+ * this again for the same withdrawal — the SDK's own network retries, or a
+ * resume after a timeout/crash — returns the ORIGINAL transfer instead of
+ * creating a second one.
+ *  - success            → COMPLETED
+ *  - definitive failure → FAILED, ledger rows released for a fresh withdrawal
+ *  - unknown outcome    → stays PENDING with its rows claimed; the next
+ *                         withdraw attempt resumes it with the same key
+ */
+async function settleWithdrawal(withdrawal: Withdrawal): Promise<Withdrawal> {
+  let transfer: Stripe.Transfer;
+  try {
+    transfer = await stripe.transfers.create(
+      {
+        amount: withdrawal.amountCents,
+        currency: "usd",
+        destination: withdrawal.stripeAccountId,
+        transfer_group: withdrawal.id,
+      },
+      { idempotencyKey: `withdrawal-${withdrawal.id}`, maxNetworkRetries: 2 },
+    );
+  } catch (error) {
+    const kind = classifyTransferError(error);
+
+    if (kind === "in-progress") {
+      // The same withdrawal's transfer is still being processed by another request.
+      throw new ApiError(409, MESSAGES.wallet.withdrawalInProgress);
+    }
+
+    if (kind === "unknown") {
+      logger.error(
+        { err: error, organiserId: withdrawal.organiserId, withdrawalId: withdrawal.id },
+        "withdrawal transfer outcome unknown — left PENDING, will resume with the same idempotency key",
+      );
+      throw new ApiError(502, MESSAGES.wallet.transferUncertain);
+    }
+
+    const failureReason = error instanceof Error ? error.message : "unknown transfer error";
+
+    await prisma.$transaction([
+      prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: { status: "FAILED", failureReason },
+      }),
+      prisma.walletLedgerEntry.updateMany({
+        where: { withdrawalId: withdrawal.id },
+        data: { withdrawalId: null },
+      }),
+    ]);
+
+    logger.error(
+      {
+        err: error,
+        organiserId: withdrawal.organiserId,
+        withdrawalId: withdrawal.id,
+        failureReason,
+      },
+      "withdrawal transfer failed — ledger rows released for retry",
+    );
+
+    throw new ApiError(502, MESSAGES.wallet.transferFailed);
+  }
+
+  // Outside the try on purpose: if this write fails, the transfer already
+  // happened, so the withdrawal must stay PENDING (and resume to COMPLETED
+  // via the same idempotency key) rather than be marked FAILED and released.
+  const completed = await prisma.withdrawal.update({
+    where: { id: withdrawal.id },
+    data: { status: "COMPLETED", stripeTransferId: transfer.id },
+  });
+
+  logger.info(
+    {
+      organiserId: withdrawal.organiserId,
+      withdrawalId: withdrawal.id,
+      stripeTransferId: transfer.id,
+    },
+    "withdrawal completed",
+  );
+
+  return completed;
 }
 
 /**
@@ -276,6 +406,22 @@ export async function withdrawAvailableBalance(organiserId: string): Promise<Wit
   const account = await prisma.organiserStripeAccount.findUnique({ where: { organiserId } });
   if (!account || account.status !== "ACTIVE") {
     throw new ApiError(409, MESSAGES.wallet.accountNotActive);
+  }
+
+  // A PENDING withdrawal means an earlier attempt's outcome is unknown (timeout /
+  // crash). Settle that one first — with its original idempotency key, Stripe
+  // returns the original transfer if it went through — instead of claiming the
+  // same money again under a new withdrawal.
+  const pending = await prisma.withdrawal.findFirst({
+    where: { organiserId, status: "PENDING" },
+    orderBy: { createdAt: "asc" },
+  });
+  if (pending) {
+    logger.warn(
+      { organiserId, withdrawalId: pending.id },
+      "resuming pending withdrawal before claiming a new one",
+    );
+    return settleWithdrawal(pending);
   }
 
   const claimed = await prisma.$transaction(async (tx) => {
@@ -306,7 +452,7 @@ export async function withdrawAvailableBalance(organiserId: string): Promise<Wit
       data: { withdrawalId: withdrawal.id },
     });
 
-    return { id: withdrawal.id, amountCents: withdrawal.amountCents } satisfies ClaimedWithdrawal;
+    return withdrawal;
   });
 
   if (!claimed) {
@@ -318,44 +464,5 @@ export async function withdrawAvailableBalance(organiserId: string): Promise<Wit
     "withdrawal claimed — calling stripe transfer",
   );
 
-  try {
-    const transfer = await stripe.transfers.create({
-      amount: claimed.amountCents,
-      currency: "usd",
-      destination: account.stripeAccountId,
-      transfer_group: claimed.id,
-    });
-
-    const completed = await prisma.withdrawal.update({
-      where: { id: claimed.id },
-      data: { status: "COMPLETED", stripeTransferId: transfer.id },
-    });
-
-    logger.info(
-      { organiserId, withdrawalId: claimed.id, stripeTransferId: transfer.id },
-      "withdrawal completed",
-    );
-
-    return completed;
-  } catch (error) {
-    const failureReason = error instanceof Error ? error.message : "unknown transfer error";
-
-    await prisma.$transaction([
-      prisma.withdrawal.update({
-        where: { id: claimed.id },
-        data: { status: "FAILED", failureReason },
-      }),
-      prisma.walletLedgerEntry.updateMany({
-        where: { withdrawalId: claimed.id },
-        data: { withdrawalId: null },
-      }),
-    ]);
-
-    logger.error(
-      { err: error, organiserId, withdrawalId: claimed.id, failureReason },
-      "withdrawal transfer failed — ledger rows released for retry",
-    );
-
-    throw new ApiError(502, MESSAGES.wallet.transferFailed);
-  }
+  return settleWithdrawal(claimed);
 }

@@ -108,6 +108,9 @@ export const MESSAGES = {
     nothingToWithdraw: "There is no available balance to withdraw",
     withdrawSuccess: "Withdrawal completed",
     transferFailed: "Withdrawal failed, please try again",
+    transferUncertain:
+      "We couldn't confirm your withdrawal yet. Don't worry — try again in a moment and we'll finish it without paying twice",
+    withdrawalInProgress: "A withdrawal is already in progress",
   },
   support: {
     ticketReceived:
